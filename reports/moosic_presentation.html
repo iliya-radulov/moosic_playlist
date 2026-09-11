@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Automating Moosic Playlists</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #241A2E;
+    --surface: #2F2238;
+    --surface-2: #392A44;
+    --gold: #E8B04B;
+    --coral: #E8795D;
+    --teal: #6FA7A0;
+    --ink: #F5EFE6;
+    --ink-muted: #B3A3B8;
+    --line: #453655;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', sans-serif;
+    overflow: hidden;
+  }
+  .deck { position: relative; width: 100vw; height: 100vh; }
+  .slide {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 6vh 9vw;
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .slide.active { display: flex; opacity: 1; transform: translateY(0); }
+
+  h1, h2 { font-family: 'Fraunces', serif; font-weight: 600; letter-spacing: -0.01em; }
+  .eyebrow { display: none; } /* deliberately no all-caps eyebrows */
+
+  .headline { font-size: clamp(2.2rem, 4.2vw, 3.4rem); color: var(--ink); line-height: 1.08; max-width: none; }
+  .headline .accent { color: var(--gold); }
+  .subhead { font-size: clamp(1rem, 1.4vw, 1.3rem); color: var(--ink-muted); margin-top: 0.9rem; max-width: 46ch; font-weight: 400; }
+
+  .bullets { list-style: none; margin-top: 2.4rem; display: flex; flex-direction: column; gap: 1.15rem; max-width: 62ch; }
+  .bullets li { font-size: clamp(1.05rem, 1.5vw, 1.35rem); line-height: 1.45; padding-left: 1.6rem; position: relative; color: var(--ink); }
+  .bullets li::before { content: ""; position: absolute; left: 0; top: 0.65em; width: 8px; height: 8px; border-radius: 50%; background: var(--coral); }
+  .bullets li.sub { color: var(--ink-muted); font-size: clamp(0.92rem, 1.15vw, 1.05rem); padding-left: 2.2rem; }
+  .bullets li.sub::before { background: var(--teal); width: 6px; height: 6px; top: 0.55em; }
+
+  .content-row { display: flex; gap: 5vw; align-items: center; margin-top: 2rem; flex: 1; max-height: 60vh; }
+  .content-col { flex: 1; min-width: 0; }
+
+  .kicker { font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; color: var(--teal); letter-spacing: 0.02em; margin-bottom: 0.6rem; }
+
+  .slide-header { min-height: 16vh; flex-shrink: 0; }
+  .slide-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+  /* progress + nav */
+  .progress-track { position: fixed; bottom: 0; left: 0; width: 100%; height: 3px; background: var(--surface); z-index: 20; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--coral), var(--gold)); transition: width 0.3s ease; }
+  .slide-counter {
+    position: fixed; bottom: 1.4rem; right: 2.2rem; z-index: 20;
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; color: var(--ink-muted);
+  }
+  .nav-hint {
+    position: fixed; bottom: 1.4rem; left: 2.2rem; z-index: 20;
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--ink-muted); opacity: 0.65;
+  }
+
+  /* pros/cons */
+  .prosconstable { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 2.2rem; max-width: 60ch; }
+  .pc-box { background: var(--surface); border-radius: 4px; padding: 1.1rem 1.3rem; border-left: 3px solid var(--teal); }
+  .pc-box.cons { border-left-color: var(--coral); }
+  .pc-box .pc-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--ink-muted); margin-bottom: 0.5rem; }
+  .pc-box p { font-size: 0.95rem; line-height: 1.4; }
+
+  /* comparison table */
+  table.compare { border-collapse: collapse; margin-top: 2.2rem; width: 100%; max-width: 74ch; }
+  table.compare th, table.compare td { text-align: left; padding: 0.85rem 1.2rem; font-size: 0.98rem; }
+  table.compare th { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--ink-muted); font-weight: 400; border-bottom: 1px solid var(--line); }
+  table.compare td { border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.compare tr:last-child td { border-bottom: none; }
+  table.compare td.method { font-family: 'Fraunces', serif; font-weight: 600; color: var(--gold); }
+  table.compare td.verdict { color: var(--ink-muted); font-size: 0.88rem; }
+
+  /* case cards */
+  .cases { display: flex; gap: 2rem; margin-top: 2.2rem; }
+  .case-card { flex: 1; background: var(--surface); border-radius: 4px; padding: 1.6rem; }
+  .case-card .tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; margin-bottom: 0.8rem; }
+  .case-card.fp .tag { color: var(--coral); }
+  .case-card.fn .tag { color: var(--teal); }
+  .case-card h3 { font-family: 'Fraunces', serif; font-size: 1.25rem; margin-bottom: 0.6rem; }
+  .case-card p { font-size: 0.95rem; color: var(--ink-muted); line-height: 1.5; }
+  .lesson-line { margin-top: 2rem; font-size: 1.1rem; font-style: italic; color: var(--gold); max-width: 50ch; }
+
+  /* two-col next steps */
+  .twocol { display: flex; gap: 4rem; margin-top: 2.2rem; }
+  .twocol-block h3 { font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; color: var(--teal); font-weight: 500; margin-bottom: 1rem; }
+
+  /* title slide waveform */
+  .waveform { display: flex; align-items: flex-end; gap: 6px; height: 60px; margin-bottom: 2.4rem; }
+  .waveform span { width: 6px; border-radius: 3px; background: linear-gradient(180deg, var(--gold), var(--coral)); animation: wf 1.8s ease-in-out infinite; }
+  @keyframes wf { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+  .context-line { position: absolute; bottom: 5vh; left: 9vw; font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--ink-muted); }
+
+  /* big statement slide */
+  .statement { font-family: 'Fraunces', serif; font-size: clamp(2rem, 4vw, 3.1rem); line-height: 1.25; max-width: 24ch; font-weight: 500; }
+  .statement .accent { color: var(--gold); }
+
+  /* axis diagram */
+  .axis-diagram { flex: 1; display: flex; align-items: center; justify-content: center; }
+
+  /* quadrant / distribution mini charts share svg text styling */
+  svg text { font-family: 'IBM Plex Mono', monospace; fill: var(--ink-muted); }
+  svg .cell-label { fill: var(--ink); font-family: 'IBM Plex Sans', sans-serif; }
+
+  .caption { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--ink-muted); margin-top: 1rem; }
+
+  .backup-tag { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--bg); background: var(--gold); padding: 3px 10px; border-radius: 3px; margin-bottom: 0.8rem; }
+  .img-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; margin-top: 1.2rem; }
+  .img-grid figure { margin: 0; }
+  .img-grid img { width: 100%; border-radius: 4px; }
+  .img-grid figcaption { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--ink-muted); margin-top: 0.5rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slide, .waveform span { transition: none; animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+
+  <!-- SLIDE 1 — Title -->
+  <section class="slide active">
+    <div class="slide-header">
+      <div class="waveform">
+        <span style="height:60%; animation-delay:0s"></span>
+        <span style="height:90%; animation-delay:0.15s"></span>
+        <span style="height:45%; animation-delay:0.3s"></span>
+        <span style="height:100%; animation-delay:0.45s"></span>
+        <span style="height:65%; animation-delay:0.6s"></span>
+        <span style="height:80%; animation-delay:0.75s"></span>
+        <span style="height:35%; animation-delay:0.9s"></span>
+      </div>
+      <h1 class="headline">Automating Moosic <span class="accent">Playlists</span></h1>
+      <p class="subhead">What clustering ~5,000 songs actually taught us — three algorithms, real failures, and one surprising correction.</p>
+    </div>
+    <div class="context-line">Individual project, built in collaboration with Claude · Unsupervised (Machine) Learning Fundamentals</div>
+  </section>
+
+  <!-- SLIDE 2 — Dataset & Features -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Where we started</div>
+      <h2 class="headline">5,235 songs. 13 raw audio features.</h2>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col" style="flex:0 0 40%">
+          <ul class="bullets">
+            <li>Correlation analysis found several features redundant</li>
+            <li class="sub">Loudness ≈ Energy + Acousticness combined</li>
+            <li>7 features kept — each carrying independent signal</li>
+          </ul>
+        </div>
+        <div class="content-col">
+          <svg id="corrMatrix" width="100%" viewBox="0 0 520 520"></svg>
+          <div class="caption">Correlation matrix — the actual feature set tested</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 3 — The Real Challenge -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Before the results</div>
+      <h2 class="headline">The real challenge: what does <span class="accent">"good"</span> even mean?</h2>
+    </div>
+    <div class="slide-body">
+      <ul class="bullets">
+        <li>No labeled data — nothing tells an algorithm what a "correct" playlist looks like</li>
+        <li>No built-in success criteria — clustering math measures structure, not taste</li>
+        <li>"Good" is genuinely subjective — even our instructor confirmed dropping songs is fine, if what's left is coherent</li>
+        <li>Our answer: define success ourselves, up front — and always verify with a real, human listen on a sample</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- SLIDE 4 — How We Built It -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Method</div>
+      <h2 class="headline">How we built it</h2>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col">
+          <ul class="bullets">
+            <li>Tested 3 algorithms: K-Means, DBSCAN, Hierarchical</li>
+            <li>Success measured on two axes — <span class="accent" style="font-weight:600">coherence</span> first, coverage second</li>
+            <li>Iterative process: tuned, tested, and corrected at every step</li>
+          </ul>
+        </div>
+        <div class="content-col axis-diagram">
+          <svg width="100%" viewBox="0 0 380 340">
+            <line x1="60" y1="20" x2="60" y2="290" stroke="#453655" stroke-width="1.5"/>
+            <line x1="60" y1="290" x2="360" y2="290" stroke="#453655" stroke-width="1.5"/>
+            <text x="20" y="20" font-size="12">high</text>
+            <text x="20" y="295" font-size="12">low</text>
+            <text x="60" y="315" font-size="12">low</text>
+            <text x="330" y="315" font-size="12">high</text>
+            <text x="20" y="160" font-size="13" fill="#B3A3B8" transform="rotate(-90 20 160)">coherence</text>
+            <text x="180" y="332" font-size="13" fill="#B3A3B8">coverage</text>
+            <circle cx="290" cy="70" r="9" fill="#E8B04B"/>
+            <text x="305" y="75" font-size="14" fill="#F5EFE6">K-Means</text>
+            <circle cx="120" cy="230" r="9" fill="#E8795D"/>
+            <text x="135" y="235" font-size="14" fill="#F5EFE6">DBSCAN</text>
+            <circle cx="270" cy="80" r="9" fill="#6FA7A0"/>
+            <text x="285" y="100" font-size="14" fill="#F5EFE6">Hierarchical</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 5 — K-Means -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Algorithm 1</div>
+      <h2 class="headline">K-Means — the business-constrained workhorse</h2>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col">
+          <ul class="bullets">
+            <li>Elbow method alone suggested 3–5 clusters — mathematically "best," practically useless (1,000+ songs per playlist)</li>
+            <li>Overrode with business logic: target 20–60 songs per playlist</li>
+            <li>Result: ~130 playlists, ~98% landed inside the target range</li>
+            <li class="sub">Real limit found: "Teenage Dirtbag" landed in a dance-pop playlist — sound-alike on tempo/energy, not genre-alike</li>
+          </ul>
+          <div class="prosconstable">
+            <div class="pc-box"><div class="pc-label">Strength</div><p>Full coverage. Playlist size fully controllable.</p></div>
+            <div class="pc-box cons"><div class="pc-label">Limitation</div><p>Size target imposed by us, not discovered.</p></div>
+          </div>
+        </div>
+        <div class="content-col">
+          <img src="../outputs/01_elbow_silhouette.png" alt="Elbow and silhouette plot" style="width:100%; max-width:420px; border-radius:4px;"/>
+          <div class="caption">Elbow + silhouette — 3–5 looks "best," isn't usable</div>
+          <img src="../outputs/02_final_size_histogram.png" alt="Final playlist size histogram" style="width:100%; max-width:420px; border-radius:4px; margin-top:1rem;"/>
+          <div class="caption">Final playlist sizes — 98% land in [20,60]</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 6 — DBSCAN -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Algorithm 2</div>
+      <h2 class="headline">DBSCAN — honest about uncertainty</h2>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col">
+          <ul class="bullets">
+            <li>No fixed k — groups by density, flags outliers instead of forcing them in</li>
+            <li>Extensively tuned (eps, min_samples, 2 different scalers) — never found a workable middle ground</li>
+            <li class="sub">Every setting: one dominant mega-cluster plus noise, or fragmented pieces</li>
+            <li>Real value found anyway: correctly isolated a genuine classical/instrumental pocket, and a hidden rap/hip-hop pocket inside its own "noise"</li>
+          </ul>
+        </div>
+        <div class="content-col">
+          <svg id="dbscanSweep" width="100%" viewBox="0 0 400 240"></svg>
+          <div class="caption">Real sweep data — coverage climbs, silhouette never stays good</div>
+        </div>
+      </div>
+      <div class="prosconstable">
+        <div class="pc-box"><div class="pc-label">Strength</div><p>Strong diagnostic tool. Honest about what it doesn't know.</p></div>
+        <div class="pc-box cons"><div class="pc-label">Limitation</div><p>Not viable as the primary playlist generator for this data.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 7 — Hierarchical -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Algorithm 3</div>
+      <h2 class="headline">Hierarchical — finding real coarse structure</h2>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col">
+          <ul class="bullets">
+            <li>No pre-set k — builds a full tree, we choose where to cut</li>
+            <li class="sub">Best-scoring cut (k=2–3) was the same misleading pattern as DBSCAN — one dominant group in disguise</li>
+            <li>k=8 gave 8 balanced, musically distinct groups</li>
+            <li>Independently re-found DBSCAN's two hidden pockets — cross-validated by a different method</li>
+          </ul>
+        </div>
+        <div class="content-col">
+          <svg width="100%" viewBox="0 0 360 200">
+            <g id="aggBars"></g>
+          </svg>
+          <div class="caption">8 supercluster sizes — balanced, no mega-cluster</div>
+        </div>
+      </div>
+      <div class="prosconstable">
+        <div class="pc-box"><div class="pc-label">Strength</div><p>Reveals real coarse structure. Strong hybrid potential with K-Means.</p></div>
+        <div class="pc-box cons"><div class="pc-label">Limitation</div><p>Heavier to compute. Still needs a human-chosen cutoff.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 8 — Head to Head -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Summary</div>
+      <h2 class="headline">Head-to-head</h2>
+    </div>
+    <div class="slide-body">
+      <table class="compare">
+        <tr><th>Method</th><th>Coherence</th><th>Coverage</th><th>Verdict</th></tr>
+        <tr><td class="method">K-Means</td><td>Good (business-tuned)</td><td>~98%</td><td class="verdict">Chosen — business-constrained, reliable</td></tr>
+        <tr><td class="method">DBSCAN</td><td>Diagnostic only</td><td>up to 92%*</td><td class="verdict">*hides one mega-cluster — not real playlists</td></tr>
+        <tr><td class="method">Hierarchical</td><td>Good at k=8</td><td>100%</td><td class="verdict">Confirms K-Means findings independently</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- SLIDE 8a — t-SNE Visual Comparison -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">By eye, first</div>
+      <h2 class="headline">Do they look alike?</h2>
+    </div>
+    <div class="slide-body">
+      <div class="img-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+        <figure>
+          <img src="../outputs/02_kmeans_tsne.png" style="max-width:100%; height: 320px;" alt="K-Means t-SNE visualization"/>
+          <figcaption>K-Means (k=8)</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/04_dbscan_tsne.png" style="max-width:100%; height: 320px;" alt="DBSCAN t-SNE visualization"/>
+          <figcaption>DBSCAN</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/05_agg_tsne.png" style="max-width:100%; height: 320px;" alt="Agglomerative t-SNE visualization"/>
+          <figcaption>Agglomerative (k=8)</figcaption>
+        </figure>
+      </div>
+      <p class="caption" style="margin-top:1.4rem">Same underlying shape, three different lenses — the next slide puts a real number on it.</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 8b — Cross-Algorithm Validation -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Validation</div>
+      <h2 class="headline">Do the three methods actually agree?</h2>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col" style="flex:0 0 42%">
+          <table class="compare" style="max-width:100%">
+            <tr><th>Comparison</th><th>ARI</th><th>NMI</th></tr>
+            <tr><td>K-Means vs Agglomerative</td><td>0.555</td><td>0.689</td></tr>
+            <tr><td>K-Means vs DBSCAN</td><td>0.089</td><td>0.306</td></tr>
+            <tr><td>Agglomerative vs DBSCAN</td><td>0.084</td><td>0.302</td></tr>
+          </table>
+          <ul class="bullets" style="margin-top:1.6rem">
+            <li>K-Means and Agglomerative agree strongly — real, independent confirmation</li>
+            <li class="sub">DBSCAN's lower score isn't disagreement — it only ever found 2 clusters, never attempting the finer 8-way split</li>
+          </ul>
+          <p class="lesson-line" style="margin-top:1.6rem">On the one distinction DBSCAN did commit to — classical vs. everything else — agreement is perfect: <strong>ARI = 1.000</strong></p>
+        </div>
+        <div class="content-col">
+          <img src="../outputs/08_cross_algorithm_heatmaps.png" alt="Cross-algorithm cluster agreement heatmaps"
+               style="width:100%; border-radius:6px;"/>
+          <div class="caption">Matched heatmaps — a clear diagonal is agreement</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 8c — Hybrid Tradeoff -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">One step further</div>
+      <h2 class="headline">A hybrid approach — and an honest correction</h2>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col">
+          <ul class="bullets">
+            <li>Tested: Agglomerative's 8 groups first, then K-Means split within each — songs never cross a broad category boundary</li>
+            <li>Size-target metrics barely moved (98.4% → 99.2%) — both pipelines already tuned to hit that target</li>
+            <li class="sub">59% of single-stage playlists span more than one broad category — looked like a clear win for the hybrid</li>
+          </ul>
+          <p class="lesson-line" style="margin-top:1.4rem">Then we checked one "worst offender" playlist by ear — it was a completely coherent jazz &amp; bossa nova set the single-stage pipeline got right. The hybrid would have split it apart.</p>
+        </div>
+        <div class="content-col">
+          <img src="../outputs/06_hybrid_vs_baseline_histograms.png" alt="Hybrid vs single-stage playlist size histograms" style="width:100%; border-radius:6px;"/>
+          <div class="caption">Neither approach wins outright — a real, demonstrated tradeoff</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 9 — Feature Limitations -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Our most important finding</div>
+      <h2 class="headline">What audio features can't capture</h2>
+    </div>
+    <div class="slide-body">
+      <div class="cases">
+        <div class="case-card fp">
+          <div class="tag">False positive</div>
+          <h3>"Teenage Dirtbag"</h3>
+          <p>Landed in a dance-pop playlist — matched on tempo and energy alone. The algorithm has no way to hear that it's a different genre entirely.</p>
+        </div>
+        <div class="case-card fn">
+          <div class="tag">Caught in time</div>
+          <h3>The jazz playlist</h3>
+          <p>Flagged as "badly mixed" for spanning four categories. Checking the actual titles: Jobim, jazz standards — a completely coherent playlist, just sonically diverse.</p>
+        </div>
+      </div>
+      <p class="lesson-line">These features track sound, not genre or mood the way people actually experience it.</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 10 — Is Unsupervised ML Suitable -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">The question</div>
+      <p class="statement">Is unsupervised machine learning the right approach? <span class="accent">Yes — but only paired with an explicit, human-defined goal.</span></p>
+    </div>
+    <div class="slide-body">
+      <p class="subhead" style="max-width:52ch">No algorithm has a concept of "good" on its own. Every useful result in this project came from combining the math with a clear decision about what we actually wanted.</p>
+    </div>
+  </section>
+
+  <!-- SLIDE 11 — Next Steps -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">Looking ahead</div>
+      <h2 class="headline">Where this goes next</h2>
+    </div>
+    <div class="slide-body">
+      <div class="twocol">
+        <div class="twocol-block">
+          <h3>More data that would help</h3>
+          <ul class="bullets">
+            <li>Real listener behavior — skips, replays</li>
+            <li>Lyrics and language</li>
+            <li>Context — time of day, activity</li>
+          </ul>
+        </div>
+        <div class="twocol-block">
+          <h3>Next steps</h3>
+          <ul class="bullets">
+            <li>Validate with real listener feedback</li>
+            <li>Explore the hybrid approach further</li>
+            <li>A human-listening pass before production</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 12 — Conclusion -->
+  <section class="slide">
+    <div class="slide-header">
+      <div class="kicker">The recommendation</div>
+      <p class="statement">Ship K-Means with business-defined playlist sizes — <span class="accent">but keep a human in the loop, always.</span></p>
+    </div>
+    <div class="slide-body">
+      <div class="content-row">
+        <div class="content-col" style="flex:0 0 46%">
+          <img src="../outputs/cinderella_beans.png" alt="Blindfolded figure sorting beans wearing boxing gloves"
+               style="width:100%; max-width:420px; border-radius:6px; box-shadow:0 8px 30px rgba(0,0,0,0.4);"/>
+          <div class="caption">Unsupervised learning: sorting by touch alone, blindfolded — with boxing gloves on.</div>
+        </div>
+        <div class="content-col">
+          <p class="subhead" style="max-width:40ch">Every algorithm we tested sorted honestly, by whatever it could feel. The features it had access to — and the ones it didn't — decided the rest.</p>
+          <p class="subhead" style="margin-top:1.6rem; max-width:40ch">Thank you — happy to take questions.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BACKUP 1 — K-Means detail -->
+  <section class="slide">
+    <div class="slide-header">
+      <span class="backup-tag">Backup</span>
+      <h2 class="headline">K-Means — Radar Detail</h2>
+    </div>
+    <div class="slide-body">
+      <div class="img-grid" style="grid-template-columns: 1fr 1fr; max-width: 900px;">
+        <figure>
+          <img src="../outputs/01_radar_k8.png" alt="K-Means radar chart, k=8"/>
+          <figcaption>Free clustering (k=8) — cluster profiles before any business constraint</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/02_spotcheck_radar.png" alt="Spot-check radar of final playlists"/>
+          <figcaption>Spot-check radar — a readable sample of final playlists</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- BACKUP 2 — DBSCAN detail -->
+  <section class="slide">
+    <div class="slide-header">
+      <span class="backup-tag">Backup</span>
+      <h2 class="headline">DBSCAN — Full Diagnostic Detail</h2>
+    </div>
+    <div class="slide-body">
+      <div class="img-grid">
+        <figure>
+          <img src="../outputs/04_kdistance_n3.png" alt="k-distance graph, n_neighbors=3"/>
+          <figcaption>k-distance graph (n_neighbors=3)</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/04_kdistance_n7.png" alt="k-distance graph, n_neighbors=7"/>
+          <figcaption>k-distance graph (n_neighbors=7)</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/04_dbscan_size_histogram.png" alt="DBSCAN cluster size histogram"/>
+          <figcaption>Canonical run — cluster size distribution</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/04_dbscan_tsne.png" alt="DBSCAN t-SNE visualization"/>
+          <figcaption>t-SNE — mega-cluster, classical pocket, noise</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- BACKUP 3 — Hierarchical detail -->
+  <section class="slide">
+    <div class="slide-header">
+      <span class="backup-tag">Backup</span>
+      <h2 class="headline">Hierarchical — Full Diagnostic Detail</h2>
+    </div>
+    <div class="slide-body">
+      <div class="img-grid">
+        <figure>
+          <img src="../outputs/05_dendrogram_truncated.png" alt="Truncated dendrogram"/>
+          <figcaption>Truncated dendrogram — top 5 levels</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/05_silhouette_ward.png" alt="Ward linkage silhouette by k"/>
+          <figcaption>Silhouette by k (Ward) — peak at k=2-3 is misleading</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/05_agg_size_histogram.png" alt="Agglomerative k=8 size histogram"/>
+          <figcaption>k=8 — balanced size distribution</figcaption>
+        </figure>
+        <figure>
+          <img src="../outputs/05_agg_tsne.png" alt="Agglomerative t-SNE visualization"/>
+          <figcaption>t-SNE — 8 superclusters</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+<div class="slide-counter" id="slideCounter">1 / 12</div>
+<div class="nav-hint">← → to navigate</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+
+  function showSlide(i) {
+    slides[current].classList.remove('active');
+    current = Math.max(0, Math.min(i, total - 1));
+    slides[current].classList.add('active');
+    document.getElementById('slideCounter').textContent = (current + 1) + ' / ' + total;
+    document.getElementById('progressFill').style.width = ((current + 1) / total * 100) + '%';
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') showSlide(current + 1);
+    if (e.key === 'ArrowLeft') showSlide(current - 1);
+  });
+
+  document.addEventListener('click', (e) => {
+    const x = e.clientX / window.innerWidth;
+    if (x > 0.5) showSlide(current + 1); else showSlide(current - 1);
+  });
+
+  showSlide(0);
+
+  // Correlation matrix — actual values from the project's feature analysis
+  (function drawCorrMatrix() {
+    const features = ['dance', 'energy', 'acoustic', 'tempo', 'valence', 'loud', 'speech', 'instr', 'live'];
+    const kept = ['dance', 'energy', 'acoustic', 'tempo', 'valence', 'speech', 'instr'];
+    const matrix = [
+      [1.00, 0.04, -0.11, -0.01, 0.68, 0.36, 0.04, -0.57, -0.03],
+      [0.04, 1.00, -0.85, 0.21, 0.16, 0.79, 0.30, -0.17, 0.17],
+      [-0.11, -0.85, 1.00, -0.19, -0.13, -0.70, -0.27, 0.19, -0.10],
+      [-0.01, 0.21, -0.19, 1.00, 0.10, 0.21, 0.06, -0.07, 0.04],
+      [0.68, 0.16, -0.13, 0.10, 1.00, 0.34, -0.01, -0.50, 0.01],
+      [0.36, 0.79, -0.70, 0.21, 0.34, 1.00, 0.23, -0.47, 0.13],
+      [0.04, 0.30, -0.27, 0.06, -0.01, 0.23, 1.00, -0.06, 0.08],
+      [-0.57, -0.17, 0.19, -0.07, -0.50, -0.47, -0.06, 1.00, -0.05],
+      [-0.03, 0.17, -0.10, 0.04, 0.01, 0.13, 0.08, -0.05, 1.00]
+    ];
+    const svg = document.getElementById('corrMatrix');
+    const n = features.length;
+    const size = 420, offset = 90, cell = size / n;
+
+    function colorFor(v) {
+      if (v > 0.999) return '#3F3049';
+      if (v >= 0) {
+        const t = Math.min(v / 0.9, 1);
+        return `rgba(232,176,75,${0.15 + t * 0.75})`;
+      } else {
+        const t = Math.min(-v / 0.9, 1);
+        return `rgba(111,167,160,${0.15 + t * 0.75})`;
+      }
+    }
+
+    let svgContent = '';
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const x = offset + j * cell, y = offset + i * cell;
+        svgContent += `<rect x="${x}" y="${y}" width="${cell - 2}" height="${cell - 2}" fill="${colorFor(matrix[i][j])}" rx="2"/>`;
+        if (i === j || Math.abs(matrix[i][j]) > 0.55) {
+          svgContent += `<text x="${x + cell/2 - 1}" y="${y + cell/2 + 4}" font-size="10" text-anchor="middle" fill="#F5EFE6">${matrix[i][j].toFixed(2)}</text>`;
+        }
+      }
+      const kept7 = kept.includes(features[i]);
+      svgContent += `<text x="${offset - 8}" y="${offset + i * cell + cell/2 + 4}" font-size="10.5" text-anchor="end" fill="${kept7 ? '#F5EFE6' : '#7A6E85'}">${features[i]}</text>`;
+      svgContent += `<text x="${offset + i * cell + cell/2}" y="${offset - 12}" font-size="10.5" text-anchor="middle" transform="rotate(-45 ${offset + i * cell + cell/2} ${offset - 12})" fill="${kept7 ? '#F5EFE6' : '#7A6E85'}">${features[i]}</text>`;
+    }
+    svg.innerHTML = svgContent;
+  })();
+
+  // DBSCAN eps sweep — actual data from notebook 04's parameter sweep
+  (function drawDbscanSweep() {
+    const eps =        [0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15, 0.17, 0.20, 0.22, 0.25, 0.30, 0.40, 0.50];
+    const coverage =   [0.0, 0.3, 5.2, 21.6, 43.1, 61.7, 77.2, 85.3, 92.0, 94.1, 96.8, 98.9, 99.9, 100.0];
+    const silhouette = [null, 0.970, 0.547, 0.113, -0.043, -0.252, -0.218, -0.157, 0.456, 0.452, null, null, null, null];
+
+    const svg = document.getElementById('dbscanSweep');
+    const W = 400, H = 240, padL = 42, padR = 34, padT = 15, padB = 40;
+    const chartW = W - padL - padR, chartH = H - padT - padB;
+
+    const xScale = (i) => padL + (i / (eps.length - 1)) * chartW;
+    const yCov = (v) => padT + chartH - (v / 100) * chartH;
+    const silMin = -0.35, silMax = 1.0;
+    const ySil = (v) => padT + chartH - ((v - silMin) / (silMax - silMin)) * chartH;
+
+    let covPoints = eps.map((e, i) => `${xScale(i)},${yCov(coverage[i])}`).join(' ');
+    let silPoints = eps.map((e, i) => silhouette[i] !== null ? `${xScale(i)},${ySil(silhouette[i])}` : null)
+                        .filter(p => p !== null).join(' ');
+
+    let content = `
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + chartH}" stroke="#453655" stroke-width="1"/>
+      <line x1="${padL}" y1="${padT + chartH}" x2="${padL + chartW}" y2="${padT + chartH}" stroke="#453655" stroke-width="1"/>
+      <line x1="${padL + chartW}" y1="${padT}" x2="${padL + chartW}" y2="${padT + chartH}" stroke="#E8795D" stroke-width="1" opacity="0.5"/>
+      <line x1="${padL}" y1="${ySil(0)}" x2="${padL + chartW}" y2="${ySil(0)}" stroke="#E8795D" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+      <text x="${padL + chartW + 5}" y="${ySil(0) + 3}" font-size="9" fill="#E8795D">0</text>
+      <polyline points="${covPoints}" fill="none" stroke="#E8B04B" stroke-width="2.5"/>
+      <polyline points="${silPoints}" fill="none" stroke="#E8795D" stroke-width="2.5" stroke-dasharray="4,3"/>
+      <text x="${padL - 6}" y="${padT + 4}" font-size="9" text-anchor="end" fill="#E8B04B">100%</text>
+      <text x="${padL - 6}" y="${padT + chartH + 4}" font-size="9" text-anchor="end" fill="#E8B04B">0%</text>
+      <text x="${padL + chartW + 5}" y="${padT + 4}" font-size="9" fill="#E8795D">1.0</text>
+      <text x="${padL + chartW + 5}" y="${padT + chartH + 4}" font-size="9" fill="#E8795D">-0.35</text>
+      <text x="${padL}" y="${H - 8}" font-size="10">eps=0.03</text>
+      <text x="${padL + chartW - 40}" y="${H - 8}" font-size="10">eps=0.50</text>
+      <circle cx="${padL + 10}" cy="${padT + 10}" r="4" fill="#E8B04B"/>
+      <text x="${padL + 18}" y="${padT + 14}" font-size="10" fill="#F5EFE6">coverage (left)</text>
+      <circle cx="${padL + 10}" cy="${padT + 26}" r="4" fill="#E8795D"/>
+      <text x="${padL + 18}" y="${padT + 30}" font-size="10" fill="#F5EFE6">silhouette (right)</text>
+    `;
+    svg.innerHTML = content;
+  })();
+
+  // Agglomerative supercluster size bars — actual sizes from notebook 05
+  (function drawAggBars() {
+    const sizes = [562, 734, 521, 601, 1111, 875, 698, 133];
+    const g = document.getElementById('aggBars');
+    const max = Math.max(...sizes);
+    const barW = 36, gap = 10, baseY = 180;
+    let content = '';
+    sizes.forEach((s, i) => {
+      const h = (s / max) * 140;
+      const x = 10 + i * (barW + gap);
+      content += `<rect x="${x}" y="${baseY - h}" width="${barW}" height="${h}" fill="#6FA7A0" rx="3"/>`;
+      content += `<text x="${x + barW/2}" y="${baseY + 16}" font-size="10" text-anchor="middle" fill="#B3A3B8">${s}</text>`;
+    });
+    g.innerHTML = content;
+  })();
+</script>
+
+</body>
+</html>
