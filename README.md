@@ -2,7 +2,7 @@
 
 Automating playlist creation for a music startup using unsupervised machine learning — a
 case-study project for the "Unsupervised ML" module of a data science course. Full write-up:
-**[project wrap-up page](../moosic-clustering-wrapup.html)** · **[presentation deck](../moosic_presentation.html)**.
+**[project wrap-up page](https://iliya-radulov.github.io/projects/active/moosic-clustering-wrapup/moosic-clustering-wrapup.html)** · **[presentation deck](/reports/moosic_presentation.html)**.
 
 ## The question
 
