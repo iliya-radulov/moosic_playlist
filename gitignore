@@ -1,0 +1,21 @@
+# Virtual environment — never commit this, it's huge and machine-specific
+kmean/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Large/raw data — keep the repo lean; note in README where to get it
+data/5000_songs.csv
